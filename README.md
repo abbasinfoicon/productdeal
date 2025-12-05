@@ -20,6 +20,22 @@ You can start editing the page by modifying `app/page.js`. The page auto-updates
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Cloudinary Setup
+
+This project uses Cloudinary for image uploads. To configure Cloudinary:
+
+1. Create a Cloudinary account at [https://cloudinary.com](https://cloudinary.com)
+2. Get your credentials from the [Cloudinary Dashboard](https://cloudinary.com/console)
+3. Create a `.env.local` file in the root directory with the following variables:
+
+```env
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+```
+
+Replace `your_cloud_name`, `your_api_key`, and `your_api_secret` with your actual Cloudinary credentials.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -2,45 +2,11 @@
 
 import ConnectDB from "@/configs/connectDB";
 import productModel from "@/models/productModel";
-import { writeFile, mkdir } from "fs/promises";
+import {
+    uploadMultipleImagesToCloudinary,
+    deleteImageFromCloudinary,
+} from "@/utils/uploadImage";
 import { revalidatePath, revalidateTag, unstable_noStore } from "next/cache";
-import path from "path";
-
-// Utility to handle file uploads
-async function handleFileUpload(file) {
-    if (file && file.name && file.name !== "undefined") {
-        const buffer = Buffer.from(await file.arrayBuffer());
-        const fileName = `${Date.now()}-${file.name}`;
-        const uploadDir = path.join(
-            process.cwd(),
-            "public/assets/images/upload"
-        );
-        
-        // Create directory if it doesn't exist
-        try {
-            await mkdir(uploadDir, { recursive: true });
-        } catch (error) {
-            // Directory might already exist, ignore error
-        }
-        
-        const filePath = path.join(uploadDir, fileName);
-        await writeFile(filePath, buffer);
-        return `/assets/images/upload/${fileName}`;
-    }
-    return "";
-}
-
-// Utility to handle multiple file uploads
-async function handleMultipleFileUploads(formData, fieldNames) {
-    const uploads = {};
-    for (const fieldName of fieldNames) {
-        const file = formData.get(fieldName);
-        if (file && file.name && file.name !== "undefined") {
-            uploads[fieldName] = await handleFileUpload(file);
-        }
-    }
-    return uploads;
-}
 
 // Get all products
 export async function getProducts() {
@@ -76,16 +42,30 @@ export async function addProduct(formData) {
     try {
         await ConnectDB();
 
-        // Handle image uploads
+        // Debug: Check if formData has the image file
+        const orderImageFile = formData.get("orderImage");
+        console.log("Order image file received:", {
+            exists: !!orderImageFile,
+            type: orderImageFile?.constructor?.name,
+            isFile: orderImageFile instanceof File,
+            size: orderImageFile?.size,
+            name: orderImageFile?.name,
+        });
+
+        // Handle image uploads to Cloudinary
         const imageFields = ["orderImage", "reviewImage", "returnImage", "sellerImage"];
-        const uploadedImages = await handleMultipleFileUploads(formData, imageFields);
+        const uploadedImages = await uploadMultipleImagesToCloudinary(
+            formData,
+            imageFields,
+            "product-info"
+        );
+
+        console.log("Uploaded images result:", uploadedImages);
 
         // Check if all required images are uploaded
-        if (
-            !uploadedImages.orderImage 
-        ) {
+        if (!uploadedImages.orderImage) {
             return {
-                message: "All images are required",
+                message: "Order image is required. Please upload an image file.",
                 status: 400,
             };
         }
@@ -165,9 +145,33 @@ export async function editProduct(id, formData) {
             };
         }
 
-        // Handle image uploads (only upload if new files are provided)
+        // Handle image uploads to Cloudinary (only upload if new files are provided)
         const imageFields = ["orderImage", "reviewImage", "returnImage", "sellerImage"];
-        const uploadedImages = await handleMultipleFileUploads(formData, imageFields);
+        const uploadedImages = await uploadMultipleImagesToCloudinary(
+            formData,
+            imageFields,
+            "product-info"
+        );
+
+        // Delete old images from Cloudinary if new ones are uploaded
+        const imagesToDelete = [];
+        if (uploadedImages.orderImage && existingProduct.orderImage) {
+            imagesToDelete.push(existingProduct.orderImage);
+        }
+        if (uploadedImages.reviewImage && existingProduct.reviewImage) {
+            imagesToDelete.push(existingProduct.reviewImage);
+        }
+        if (uploadedImages.returnImage && existingProduct.returnImage) {
+            imagesToDelete.push(existingProduct.returnImage);
+        }
+        if (uploadedImages.sellerImage && existingProduct.sellerImage) {
+            imagesToDelete.push(existingProduct.sellerImage);
+        }
+
+        // Delete old images in parallel (don't wait for completion)
+        Promise.all(imagesToDelete.map((url) => deleteImageFromCloudinary(url))).catch(
+            (error) => console.error("Error deleting old images:", error)
+        );
 
         const productData = {
             orderImage:
@@ -224,6 +228,28 @@ export async function editProduct(id, formData) {
 export async function deleteProduct(id) {
     try {
         await ConnectDB();
+        const product = await productModel.findById(id).lean();
+
+        if (!product) {
+            return {
+                message: "Product not found",
+                status: 404,
+            };
+        }
+
+        // Delete images from Cloudinary
+        const imagesToDelete = [
+            product.orderImage,
+            product.reviewImage,
+            product.returnImage,
+            product.sellerImage,
+        ].filter(Boolean); // Remove empty strings/null values
+
+        // Delete images in parallel (don't wait for completion)
+        Promise.all(imagesToDelete.map((url) => deleteImageFromCloudinary(url))).catch(
+            (error) => console.error("Error deleting images:", error)
+        );
+
         await productModel.findByIdAndDelete(id);
         revalidatePath("/");
         revalidateTag("products");
